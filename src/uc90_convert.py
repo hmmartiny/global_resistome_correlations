@@ -28,4 +28,7 @@ df4 = df3.merge(resFinderUC90.loc[resFinderUC90['record_type'] == 'S', ['clust_n
 df4.rename(columns={'target': 'refSequence'}, inplace=True)
 
 # save the homology cluster count data
-df4[['run_accession', 'clust_number', 'refSequence', 'fragmentCountAln']].to_csv('../data/resistome_uc90_v2.csv')
+df4[['run_accession', 'clust_number', 'refSequence', 'fragmentCountAln']].to_csv('../data/resistome_uc90_v3.csv')
+
+# pivot data
+df4.pivot('run_accession', 'refSequence', 'fragmentCountAln').fillna(0).to_csv('../data/resistome_uc90_pivoted.csv')
