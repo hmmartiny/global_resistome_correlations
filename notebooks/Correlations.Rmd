@@ -1,0 +1,843 @@
+---
+title: "SparCC correlations"
+output:
+  html_document:
+    toc: true
+    theme: united
+  pdf_document:
+    toc: true
+---
+# Setup 
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir=normalizePath('~/repos/global-resistome2'))
+```
+
+```{r preamble, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(tidyverse)
+library(pals)
+library(tidygraph)
+library(igraph)
+library(qgraph)
+library(ggraph)
+library(ggnewscale)
+library(ggpubr)
+
+knitr::opts_chunk$set(python.reticulate = FALSE)
+setwd('~/repos/global-resistome/')
+
+# Load various custom functions used in this notebook
+source('src/network_functions.R')
+
+# Load lists of variables used for plotting and other tasks.
+source('src/corr_defaults.R')
+```
+
+# Load data
+Host label to host groups
+```{r load_count_data}
+count.data <- read_csv('data/resistome_uc90_v2.csv')
+
+# query for meta data
+# select * from Meta_public;
+meta.data <- read_tsv('data/metadata.tsv', na = c("NULL", "")) %>%
+  mutate(
+    host = case_when(
+      is.na(host) ~ 'Mising',
+      TRUE ~ host
+    )
+  ) %>%
+  left_join(enframe(host2group), by=c("host" = "name")) %>%
+  rename("hostGroup" = "value")
+  
+
+all.data <-   meta.data  %>% 
+  inner_join(count.data, by=c("run_accession")) %>%
+  select(c(run_accession, host, hostGroup, year, latitude, longitude, country, instrument_platform, raw_reads, refSequence, fragmentCountAln, trimmed_fragments))
+```
+
+```{r manipulate_count_data}
+host.gene.counts <- all.data %>%
+  group_by(hostGroup, refSequence) %>%
+  summarise(fragmentCountAln=sum(fragmentCountAln))
+
+all.gene.counts <- all.data %>%
+  group_by(refSequence) %>%
+  summarise(fragmentCountAln=sum(fragmentCountAln)) %>%
+  mutate(hostGroup = 'all') %>%
+  select(hostGroup, refSequence, fragmentCountAln)
+
+trimmedFrag.hosts <- rbind(
+  all.data %>%
+  distinct(hostGroup, run_accession, host, trimmed_fragments) %>%
+  group_by(hostGroup) %>%
+  summarise(trimmed_fragments=sum(trimmed_fragments)), 
+  all.data %>%
+  distinct(hostGroup, run_accession, host, trimmed_fragments) %>%
+  summarise(trimmed_fragments=sum(trimmed_fragments)) %>%
+  mutate(hostGroup='all')) %>%
+  filter(!is.na(hostGroup))
+
+gene.counts <- rbind(all.gene.counts, host.gene.counts) %>%
+  left_join(trimmedFrag.hosts, by=c("hostGroup")) %>%
+  mutate(FPKM = fragmentCountAln / (trimmed_fragments / 1e6))
+```
+
+
+
+```{r load_gene_annos}
+resClasses <- get_resClasses()
+```
+
+Make network files
+```{r make_network_files}
+
+makeFiles <- T
+if (makeFiles) {
+  corrFiles <- list.files(path='data/res_minF50_minS10', pattern=glob2rx("*_corr.npy"), full.names = T)
+  pvalFiles <- list.files(path='data/res_minF50_minS10', pattern=glob2rx("*_pval.npy"), full.names = T)
+  colFiles <- list.files(path='data/res_minF50_minS10', pattern=glob2rx("*_columns.list"), full.names = T)
+  
+  assertthat::assert_that(all(length(corrFiles) > 0,c(length(corrFiles) == length(pvalFiles), length(corrFiles) == length(colFiles), length(pvalFiles) == length(colFiles))))
+  alpha = 0.01
+  min_corr = 0.6
+  
+  all.matrices <- list()
+  for (i in 1:length(corrFiles)) {
+    mat <- dataLoader(
+        corrFile=corrFiles[i],
+        pvalFile=pvalFiles[i],
+        colFile=colFiles[i]
+    )
+    
+    host <- get_host(str_replace(corrFiles[i], '_sparr_corr.npy', ''))
+    all.matrices <- c(all.matrices, setNames(list(mat), host))
+    
+    prefix = str_replace(basename(corrFiles[i]), '_sparr_corr.npy', '')
+    graphFile = file.path('output/networks_sparcc_frag50_minn10', paste0(prefix, '_', min_corr))
+    print(paste("Writing network json file to", graphFile))
+    graph <- make_net(mat, resClasses, alpha, min_corr, graphFile)
+  }
+}
+
+# Grab names for all the different network files and load them
+netFiles <- list.files(path='/Users/hanmar/repos/global-resistome2/output/networks_sparcc_frag50_minn10', pattern = glob2rx('sparcc_*_0.6.json'), full.names = T)
+
+networks <- list()
+for (netFile in netFiles) {
+  host <- get_host(netFile)
+  if (!host %in% hosts) {
+    next
+  }
+  
+  # load graph file
+  G <- importGraph(netFile) %>%
+    activate(edges) %>%
+    mutate(weight=corr) %>%
+    select(-c(Var1_class, Var2_class)) %>%
+    activate(nodes) %>%
+    select(-ResFinder_class) %>%
+    left_join(resClasses, by=c("name")) 
+  
+  networks <- c(networks, setNames(list(G), host))
+}
+```
+
+# Abundance visualizations (Figure 1)
+```{r relative_abundances}
+get_host_order <- function(x){return(which(x == hosts))}
+
+sum.gene.counts <- gene.counts %>%
+  filter(!is.na(hostGroup)) %>%
+  left_join(resClasses, by=c("refSequence"="name")) %>%
+  group_by(hostGroup, ResFinder_class) %>%
+  summarise(fragmentCountAln=sum(fragmentCountAln), nGeneClass = n_distinct(refSequence)) #%>%
+  #pivot_wider(id_cols=hostGroup, names_from=ResFinder_class, values_from=fragmentCountAln) 
+
+
+sum.gene.counts2 <- sum.gene.counts %>%
+  group_by(hostGroup) %>%
+  summarise(sumVar=sum(fragmentCountAln), nGene=sum(nGeneClass)) %>%
+  left_join(sum.gene.counts, by=c("hostGroup")) %>%
+  mutate(
+    fragClosed = (100 / sumVar) * fragmentCountAln,
+    hostOrder = mapply(get_host_order, hostGroup),
+    hostGroup2 = str_to_title(case_when(
+      hostGroup == 'canis_lupus' ~ 'Dog',
+      hostGroup == 'homo_sapiens' ~ 'Human',
+      TRUE ~ hostGroup))
+  )
+
+p.class.rels <- ggplot(sum.gene.counts2) +
+  geom_bar(aes(y=reorder(hostGroup2, hostOrder), x=fragClosed, fill=ResFinder_class), stat='identity') +
+  scale_fill_manual('ResFinder class',values = classes_colors) +
+  xlab('Relative abundance') +
+  ylab('Source') +
+  theme_light() +
+  theme(legend.position="bottom")  +
+  scale_x_continuous(breaks=seq(0, 100, 10)) +
+  guides(fill=guide_legend(nrow=5))
+
+
+# Genes with most fragments in the various environmental and host sources
+gene.rels <- gene.counts %>%
+  filter(!is.na(hostGroup)) %>%
+  group_by(hostGroup) %>%
+  summarise(sumVar=sum(fragmentCountAln)) %>%
+  left_join(gene.counts, by=c("hostGroup")) %>% 
+  mutate(
+    fragClo = (100 / sumVar) * fragmentCountAln
+  )
+
+gene.rels.top10 <- gene.rels %>%
+  group_by(hostGroup) %>%
+  top_n(wt=fragClo, n=10) %>%
+  left_join(resClasses, by=c("refSequence"="name")) %>%
+  mutate(
+    refSequence = sub('_[^_]+$', '', refSequence),
+    hostOrder = mapply(get_host_order, hostGroup),
+    hostGroup2 = str_to_title(case_when(
+      hostGroup == 'canis_lupus' ~ 'Dog',
+      hostGroup == 'homo_sapiens' ~ 'Human',
+      TRUE ~ hostGroup))
+  )
+
+p.gene.rels <- ggplot(gene.rels.top10) +
+  geom_point(aes(y=reorder(hostGroup2, hostOrder), x=fragClo, color=ResFinder_class), alpha=.5) +
+  ggforce::facet_zoom(x = fragClo < 15, zoom.size=1, show.area=F) +
+  ggrepel::geom_text_repel(aes(x=fragClo, y=hostGroup, color=ResFinder_class, label=refSequence), size=2, box.padding = unit(.25, "lines"), max.overlaps = 10) +
+  scale_color_manual(values = classes_colors) +
+  xlab('Relative abundance') +
+  ylab('Source') +
+  guides(color='none') +
+  scale_x_continuous(breaks=seq(0, 100, 10)) +
+  theme_light()
+
+(p.rels.combined <- ggarrange(p.class.rels, p.gene.rels, ncol = 1, nrow=2, labels = 'auto', heights = c(0.75, 1)))
+ggsave('figs/relative_abundances.pdf', width=15, height=15)
+ggsave('figs/relative_abundances.png', width=15, height=15)
+ggsave('figs/relative_abundances.eps', width=15, height=15)
+
+```
+# Metadata overview
+Define colors for the various sampling sources
+```{r metadata_palettes}
+host_colors_palette <- tibble(host=c(hosts, 'other'), hostOrder=1:12, color=c(pals::tol(n=11), 'grey')) %>%
+  mutate(
+    hostGroup = str_to_title(case_when(
+      host == 'canis_lupus' ~ 'Dog',
+      host == 'homo_sapiens' ~ 'Human',
+      TRUE ~ host))
+)
+host_colors = setNames(host_colors_palette$color, host_colors_palette$hostGroup)
+host_col_scale <- scale_colour_manual(name = "Sampling source", values = host_colors, limits = force)
+host_fill_scale <- scale_fill_manual(name = "Sampling source", values = host_colors, limits = force)
+
+```
+## Sampling year (Figure S1)
+```{r plot_metadata_years}
+meta.data %>%
+  mutate(year=replace_na(year, 'Unknown'), hostGroup=replace_na(hostGroup, 'other')) %>%
+  group_by(hostGroup, year) %>%
+  summarise(n_runs=n_distinct(run_accession)) %>%
+  ungroup() %>%
+  mutate(
+    hostOrder = replace_na(mapply(get_host_order, hostGroup), length(hosts)+1),
+    hostGroup = str_to_title(case_when(
+      hostGroup == 'canis_lupus' ~ 'Dog',
+      hostGroup == 'homo_sapiens' ~ 'Human',
+      TRUE ~ hostGroup))
+  ) %>%
+  ggplot() +
+  geom_col(aes(y=year, x=n_runs, fill=reorder(hostGroup, hostOrder))) +
+  host_fill_scale +
+  ylim(seq(2000, 2020, 1), 'Unknown') +
+  xlab('Sample count') +
+  ylab('Sampling year') +
+  theme_light()
+ggsave('figs/run_years.png', width=7, height=5)
+ggsave('figs/run_years.pdf', width=7, height=5)
+ggsave('figs/run_years.eps', width=7, height=5)
+
+meta.data %>%
+  filter(is.na(year)) %>%
+  dim()
+```
+## Sequencing platforms (Figure S2)
+```{r plot_metadata_platforms}
+meta.data %>%
+  mutate(hostGroup = str_to_title(case_when(
+      hostGroup == 'canis_lupus' ~ 'Dog',
+      hostGroup == 'homo_sapiens' ~ 'Human',
+      is.na(hostGroup) ~ 'Other',
+      TRUE ~ hostGroup))) %>%
+  ggplot() +
+  geom_col(aes(x=raw_reads, y=instrument_platform, fill=hostGroup)) + 
+  host_fill_scale +
+  facet_wrap(instrument_platform ~ ., scales='free', ncol=1) +
+  theme_light() +
+  theme(strip.text = element_blank(), strip.background = element_blank()) +
+  xlab('Count of raw sequencing reads') + 
+  ylab('Instrument platform') 
+ggsave('figs/run_platform.png', width=7, height=5)
+ggsave('figs/run_platform.pdf', width=7, height=5)
+ggsave('figs/run_platform.eps', width=7, height=5)
+```
+
+## Sampling locations (Figure S3)
+```{r plot_metadata_locations}
+library(maps)
+map <- map_data('world')
+
+gps.runs.host <- meta.data %>%
+  filter(!is.na(hostGroup)) %>%
+  group_by(latitude, longitude, hostGroup) %>%
+  summarise(n_runs=n_distinct(run_accession))
+
+gps.runs <- meta.data %>%
+  group_by(latitude, longitude) %>%
+  summarise(n_runs=n_distinct(run_accession)) %>%
+  mutate(hostGroup = 'all')
+
+gps.runs.combi <- rbind(gps.runs, gps.runs.host) %>%
+  mutate(
+    hostOrder = mapply(get_host_order, hostGroup),
+    hostGroup = str_to_title(case_when(
+      hostGroup == 'canis_lupus' ~ 'Dog',
+      hostGroup == 'homo_sapiens' ~ 'Human',
+      TRUE ~ hostGroup))
+  )
+
+p.map.runs <- ggplot() +
+  geom_polygon(data=map, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  geom_point( data=gps.runs.combi , aes(x=longitude, y=latitude, size=n_runs), color="black", alpha=.4) + # %>% ungroup() %>% sample_n(100)
+  facet_wrap(fct_reorder(hostGroup, hostOrder) ~ ., ncol=3) +
+  theme_void() +
+  theme(strip.text.x = element_text(size=14)) +
+  scale_size('Number of samples', range=c(.5, 5)) 
+
+ggsave(plot=p.map.runs, filename='figs/run_coordinates.png', width=20, height=15)
+ggsave(plot=p.map.runs, filename='figs/run_coordinates.pdf', width=20, height=15)
+ggsave(plot=p.map.runs, filename='figs/run_coordinates.eps', width=20, height=15)
+
+rbind(
+  meta.data %>%
+    filter(is.na(latitude), is.na(longitude))%>%
+    summarise(n=n_distinct(run_accession)) %>%
+    mutate(hostGroup='all'),
+  meta.data %>%
+    group_by(hostGroup) %>%
+    filter(is.na(latitude), is.na(longitude))%>%
+    summarise(n=n_distinct(run_accession))
+)
+```
+
+
+# Edge distributions (Figure S4)
+```{r plot_edge_distributions}
+all.p.edges <- list()
+for (host in hosts) {
+  
+  hostMat <- all.matrices[[host]]
+  if (host == 'canis_lupus') {
+    host = 'dog'
+  } else if (host == 'homo_sapiens') {
+    host = 'human'
+  }
+  h <- str_to_title(host)
+  
+  p.edges <- hostMat %>%
+    mutate(
+      Selected = case_when(
+        pd < alpha & corr >= min_corr ~ TRUE,
+        TRUE ~ FALSE
+      )
+    ) %>%
+  ggplot() +
+    geom_point(aes(x=corr, y=pd, color=Selected), alpha=.5, size=.5) +
+    scale_color_manual(values=c("FALSE" = 'red', "TRUE" = 'blue')) +
+    theme_light() +
+    ylab('One-tailed p-value') +
+    xlab('Correlation') +
+    ggtitle(h)
+  
+   all.p.edges <- c(all.p.edges, setNames(list(p.edges), host))
+}
+
+p.all.edges <- ggarrange(plotlist = all.p.edges, common.legend = T, ncol = 3, nrow=4)
+ggsave(plot = p.all.edges, filename = 'figs/all_edges_dist.png', width=10, height=10)
+ggsave(plot = p.all.edges, filename = 'figs/all_edges_dist.pdf', width=10, height=10)
+ggsave(plot = p.all.edges, filename = 'figs/all_edges_dist.eps', width=10, height=10)
+
+```
+
+
+# Network visualizations (Figure 2a)
+Each network is visualized by using the Fruchterman-Reingold layout and save as a pdf/png/tiff. 
+```{r plot_networks, warning=FALSE}
+source.network.plots <- list()
+all.network <- NULL
+for (host in names(networks)) {
+
+  G <- networks[[host]]  
+
+  if(host == 'homo_sapiens') {
+    host = 'human'
+  } else if (host == 'canis_lupus') {
+    host = 'dog'
+  }
+  plottitle <- str_to_title(str_replace(host, '_', ' '))
+  
+  
+  # define layout
+  e <- get.edgelist(G, names=F)
+  layout <- qgraph.layout.fruchtermanreingold(e, vcount = vcount(G),
+                                              area = 6*(vcount(G)^2), repulse.rad = vcount(G)^2.5)
+
+  #  make visualizations with and without legends
+  graph.plot.leg <- ggraph(G, layout="manual", x=layout[,1], y=layout[,2]) +
+    geom_edge_link0(aes(color=corr, width=corr, alpha=corr)) +
+    geom_node_point(aes(color=ResFinder_class)) +
+    scale_edge_color_viridis("Correlation",direction=-1, limits=c(0.6,1)) +
+    scale_edge_width(range=c(.2, 1), guide="none") +
+    scale_edge_alpha(range=c(0.5, 0.9), guide="none") +
+    scale_color_manual("ResFinder class", values=classes_colors) +
+    # scale_shape_manual("Classified\nas CIA", values=c('0' = 15, '1'=17)) +
+    ggtitle(plottitle) +
+    theme_graph()
+  
+  ggsave(plot=graph.plot.leg, filename=paste0('figs/network_', host, '.png'), width=15, height=10)
+
+
+
+  graph.plot.noleg <- ggraph(G, layout="manual", x=layout[,1], y=layout[,2]) +
+    geom_edge_link0(aes(color=corr, width=corr, alpha=corr)) +
+    geom_node_point(aes(color=ResFinder_class)) +
+    scale_edge_color_viridis(direction=-1, guide="none", limits=c(0.6, 1)) +
+    scale_edge_width(range=c(.1, 1), guide="none") +
+    scale_edge_alpha(range=c(0.5, 0.9), guide="none") +
+    scale_color_manual(values=classes_colors, guide="none") +
+    ggtitle(plottitle) +
+    theme_graph(title_size = 14)
+  ggsave(plot=graph.plot.noleg, filename=paste0('figs/network_', host, '_noleg.png'), width=10, height=10)
+  
+  graph.plot.noleg.cia <- ggraph(G, layout="manual", x=layout[,1], y=layout[,2]) +
+    geom_edge_link0(aes(color=corr, width=corr, alpha=corr)) +
+    geom_node_point(aes(color=ResFinder_class)) +
+    scale_edge_color_viridis(direction=-1, limits=c(0.6,1), guide="none") +
+    scale_edge_width(range=c(.2, 1), guide="none") +
+    scale_edge_alpha(range=c(0.5, 0.9), guide="none") +
+    scale_color_manual(values=classes_colors, guide="none") +
+    # scale_shape_manual(values=c('0' = 15, '1'=17), guide="none") +
+    ggtitle(plottitle) +
+    theme_graph()
+  ggsave(plot=graph.plot.noleg.cia, filename=paste0('figs/network_', host, '_noleg_cia.png'), width=10, height=10)
+
+  
+  # with arg names on it
+  graph.plot.anno <- G %>%
+    activate(nodes) %>%
+    mutate(name2 = sub('_[^_]+$', '', name)) %>%
+   ggraph(layout="manual", x=layout[,1], y=layout[,2]) +
+    geom_edge_link0(aes(color=corr, width=corr, alpha=corr)) +
+    geom_node_point(aes(color=ResFinder_class)) +
+    geom_node_text(aes(label=name2), size=2, repel = T, check_overlap = T) +
+    scale_edge_color_viridis("Correlation",direction=-1, limits=c(0.6,1)) +
+    scale_edge_width(range=c(.2, 1), guide="none") +
+    scale_edge_alpha(range=c(0.7, 0.9), guide="none") +
+    scale_color_manual("ResFinder class", values=classes_colors) +
+    ggtitle(plottitle) +
+    theme_graph(title_size = 14)
+  ggsave(plot=graph.plot.anno, filename=paste0('figs/network_', host, '_anno.png'), width=15, height=10)
+
+  if(host == 'all') {
+    all.network <- graph.plot.leg
+  } else {
+    source.network.plots <- c(source.network.plots, setNames(list(graph.plot.noleg.cia), host))
+  }
+}
+
+p.sources <- ggarrange(plotlist=source.network.plots[order(names(source.network.plots))], nrow=2, ncol=ceiling(length(source.network.plots)/2), common.legend = T)
+p.combined <- ggarrange(all.network, p.sources, ncol=2, common.legend = T, legend='bottom', widths=c(.5, 1), labels='a')
+ggsave(plot=p.combined, filename='figs/network_combined.png', width=22, height=8)
+
+```
+
+## Network characteristics (Figure 2b)
+Summarise global properties of the different networks
+```{r make_network_characteristics}
+network.characteristics <- tibble()
+for (host in names(networks)) {
+  
+  G <- networks[[host]] #importGraph(netFile)
+  
+  net.characteristics <- summarise.graph(G) %>%
+    mutate(host=host, sort_order=which(hosts == host))
+  network.characteristics <- rbind(network.characteristics, net.characteristics)
+  
+}
+
+network.characteristics <- network.characteristics %>%
+  mutate(
+    host = str_to_title(case_when(
+      host == 'canis_lupus' ~ 'Dog',
+      host == 'homo_sapiens' ~ 'Human',
+      TRUE ~ host
+    ))
+)
+      
+network.characteristics.final <- network.characteristics %>%
+  mutate(
+    global_clustering_coefficient = round(global_clustering_coefficient, 3),
+    edge_density = round(edge_density, 3),
+    network_density = round(network_density,3)
+    ) %>%
+  arrange(sort_order) %>%
+  select(host, number_of_nodes, number_of_edges, global_clustering_coefficient, network_density, edge_density, number_of_components)
+
+(p.netchars <- ggtexttable(
+  network.characteristics.final, 
+  cols = c(
+    str_wrap('Network', width=7),
+    str_wrap('No. nodes', width=7),
+    str_wrap('No. edges', width=7),
+    str_wrap('Global clustering coefficient', width=17),
+    str_wrap('Network density', width=7),
+    str_wrap('Edge density', width=7),
+    str_wrap('No. components', width=7)
+  ),
+  rows=rep('', nrow(network.characteristics.final)),
+  theme = ttheme(base_style="light", padding=unit(c(2,2), "mm"))
+))
+
+ggsave('figs/network_metrics.png')
+ggsave('figs/network_metrics.pdf')
+```
+### Distribution of correlation coefficients / weights (Figure 2c)
+```{r plot_corr_dists, fig.width=5, fig.height=10}
+all.edges <- tibble()
+for (host in names(networks)) {
+  
+  G <- networks[[host]] 
+  
+  host_order = which(host == hosts)
+  
+  edge.data <- G %>%
+    as_data_frame %>%
+    select(from, to, corr) %>%
+    mutate(host=host, host_order=host_order)
+  all.edges <- rbind(all.edges, edge.data)
+}
+
+
+all.edges <- all.edges %>%
+  mutate(
+    host = str_to_title(case_when(
+      host == 'canis_lupus' ~ 'Dog',
+      host == 'homo_sapiens' ~ 'Human',
+      TRUE ~ host
+    ))
+  )
+
+(p.edge.dist <- ggplot(all.edges) +
+  geom_histogram(aes(x=corr), color='white', binwidth = 0.01) +
+  facet_grid(fct_reorder(host, host_order)~., scales='free_y') +
+  xlab('Correlation') + ylab('Count') + 
+  #theme_pubr() 
+  theme_light() +
+  theme(axis.text.y = element_text(size=8)) 
+)
+  
+```
+
+
+### Overlapping nodes and edges in the networks (Figure 2d)
+```{r plot_network_overlaps}
+overlapping.edges <- matrix(nrow=length(networks), ncol=length(networks))
+overlapping.nodes <- matrix(nrow=length(networks), ncol=length(networks))
+
+colnames(overlapping.edges) <- rownames(overlapping.edges) <- names(networks)
+colnames(overlapping.nodes) <- rownames(overlapping.nodes) <- names(networks)
+
+for (hostSet in utils::combn(names(networks), m=2, simplify = F)) {
+  h1 = hostSet[1]
+  h2 = hostSet[2]
+  
+  G1 <- networks[[h1]]
+  G2 <- networks[[h2]]
+  
+  if (any(is.null(G1), is.null(G2))) {
+    next
+  }
+  
+  overlapping.edges[h1, h2] <- length(intersect(E(G1), E(G2)))
+  overlapping.nodes[h1, h2] <- length( intersect(V(G1), V(G2)))
+
+}
+
+overlapping.edges <- as_tibble(overlapping.edges,rownames = 'h1') %>%
+  pivot_longer(-h1, names_to = 'h2')
+overlapping.nodes <- as_tibble(overlapping.nodes,rownames = 'h1') %>%
+  pivot_longer(-h1, names_to = 'h2') 
+
+(p.overlaps <- ggplot() +
+  geom_tile(data=overlapping.nodes, aes(x=h1, y=h2, fill=value)) +
+  geom_text(data=overlapping.nodes, aes(x=h1, y=h2, label=value), color='white') +
+  scale_fill_viridis_c(str_wrap("Overlapping nodes", 11), na.value=NA) +
+  new_scale_fill() +
+  geom_tile(data=overlapping.edges, aes(y=h1, x=h2, fill=value)) +
+  geom_text(data=overlapping.edges, aes(y=h1, x=h2, label=value), color='white') +
+  scale_fill_viridis_c(str_wrap("Overlapping edges", 11), na.value=NA, option='H') +
+  scale_x_discrete(labels=c('Air', 'All', 'Dog', 'Chicken', 'Cow', 'Freshwater', 'Human', 'Marine', 'Mouse', 'Pig', 'Soil')) +
+  scale_y_discrete(labels=c('Air', 'All', 'Dog', 'Chicken', 'Cow', 'Freshwater', 'Human', 'Marine', 'Mouse', 'Pig', 'Soil')) +
+  theme_classic() +
+  theme(
+    axis.title = element_blank(),
+    legend.margin=margin(0,0,0,0)
+  )
+)
+
+ggsave('figs/network_overlaps.png')
+ggsave('figs/network_overlaps.pdf', width=10, height=5)
+```
+
+combine
+```{r plot_combi_net_chars}
+p.net_descs <- ggarrange(p.netchars, p.edge.dist, p.overlaps, ncol=3, labels=c('b', 'c', 'd'))
+ggsave(plot=p.net_descs, filename='figs/network_characteristics.png', width=20, height=6)
+```
+
+# Local properties of nodes (Figure 3)
+looking at the nodes with the highest degrees
+```{r fig.height=7, fig.width=10}
+node.centralities <- tibble()
+for (host in names(networks)) {
+  
+  G <- networks[[host]]
+  
+  node.cen <- G %>%
+    activate(nodes) %>%
+    mutate(
+      degree = centrality_degree(weights=corr),
+      betweenness = centrality_betweenness(weights=corr)
+    ) %>%
+    as_tibble() %>%
+    filter(ResFinder_class != 'Missing') %>%
+    #top_n(10, wt=degree) %>%
+    mutate(
+      host=host
+    ) %>%
+    select(-c(x, y, pagerank, nodedegree, id))
+  
+  node.centralities <- rbind(node.centralities, node.cen)
+}
+
+col_scale <- scale_colour_manual(name = "ResFinder class", values = classes_colors,
+                                 limits = force)
+
+node.centralities %>%
+  group_by(host) %>%
+  top_n(10, wt=degree) %>%
+  mutate(name2 = sub('_[^_]+$', '', name)) %>%
+  left_join(gene.rels, by=c("name" = "refSequence", "host" = "hostGroup"))  %>%
+  mutate(
+    host = str_to_title(case_when(
+      host == 'canis_lupus' ~ 'Dog',
+      host == 'homo_sapiens' ~ 'Human',
+      TRUE ~ host
+    ))
+  ) %>%
+  ggplot() +
+  geom_point(aes(x=host, y=name2, color=ResFinder_class, size=fragClo, alpha=degree))  +
+  scale_alpha_continuous("Number of edges", range=c(0.25, 0.95), trans='log', breaks=c(1, 10, 25, 50)) +
+  scale_size_continuous("Relative abundance", range=c(2, 8), breaks=c(5, 10, 25, 50, 75, 100)) +
+  col_scale +
+  theme_light() +
+  #  theme(
+  #  legend.position = 'bottom', 
+  #  legend.box="vertical"
+  #) +
+  guides(
+    color=guide_legend(byrow = F, ncol=1, title.position="top")
+    #size=guide_legend(title.position="top")
+  ) +
+  xlab("") + ylab("") +
+  ggtitle("ARGs with 10 highest number of edges per network")
+
+ggsave('figs/degree_top10_network_abundances_rel.png', width = 15, height=10)
+ggsave('figs/degree_top10_network_abundances_rel.pdf', width = 15, height=10)
+ggsave('figs/degree_top10_network_abundances_rel.eps', width = 15, height=10)
+```
+## Selected genes in networks (Figure S5)
+```{r warning=FALSE}
+gene.regexes <- c("catA1", "mef\\(A\\)_1", "tet\\(L\\)_4")
+#all.gene.graphplots <- list()
+gene.graphplots <- list()
+for (gene.regex in gene.regexes) {
+  
+  add_legend = length(gene.regexes) == which(gene.regex == gene.regexes)
+  for (host in hosts) {
+    G <- networks[[host]]
+    G.sel <- extract_neighborhood(gene.regex, G)
+    if (is.null(G.sel)) {
+      p.h <- ggplot() + ggtitle(str_to_title(host)) + theme_void() + theme_graph(base_family="sans") + annotate("text",label="No correlations", x=0, y=0)
+    } else {
+      
+      p.h <- G.sel %>%
+        activate(nodes) %>%
+        left_join(filter(gene.rels, hostGroup == host), by=c("name" = "refSequence")) %>%
+        mutate(name=sub('_[^_]+$', '', name)) %>%
+        ggraph(layout="nicely") +
+        geom_edge_link0(aes(color=corr, width=corr, alpha=corr)) +
+        geom_node_point(aes(color=ResFinder_class, size=fragClo, shape=sel))  +
+        geom_node_label(aes(label=name), size=2, repel = T) +
+        scale_edge_width(range=c(.2, 1), guide="none") +
+        scale_edge_alpha(range=c(0.5, 0.9), guide="none") +
+        scale_edge_color_viridis("Correlation",direction=-1,limits=c(0.6, 1)) +
+        scale_size_continuous('Relative abundance', range=c(1, 4),  breaks=c(5, 10, 25, 50, 75, 100)) +
+        scale_color_manual("ResFinder class", values=classes_colors) +
+        scale_shape_manual("Highlighted", values=list("Yes" = 16, "No" = 15))+
+        ggtitle(str_to_title(host)) +
+        theme_graph(base_family="sans") 
+      
+      if(!add_legend){
+        p.h <- p.h + guides(colour="none", shape="none", size="none", edge_color="none")
+      }
+      # if (add_legend) {
+      #   p.h <- p.h + 
+      #     scale_color_manual("ResFinder class", values=classes_colors) +
+      #     scale_edge_color_viridis("Correlation",direction=-1,limits=c(0.6, 1)) +
+      #     scale_size('Relative abundance', range=c(1, 4)) +
+      #     scale_shape_manual("Highlighted", values=list("Yes" = 16, "No" = 15))  
+      # 
+      # } else {
+      #   p.h <- p.h + 
+      #     scale_color_manual(guide="none", values=classes_colors) +
+      #     scale_edge_color_viridis(guide="none",direction=-1,limits=c(0.6, 1)) +
+      #     scale_shape_manual(guide="none", values=list("Yes" = 16, "No" = 15))  +
+      #     scale_size(guide="none", range=c(1, 4)) 
+
+      # }
+    }
+      gene.graphplots <- c(gene.graphplots, list(p.h))
+  }
+  #print(paste(gene.regex, length(gene.graphplots)))
+  #p.g <- ggarrange(plotlist=gene.graphplots, nrow=1, common.legend = T, legend="bottom")
+  #all.gene.graphplots <- c(all.gene.graphplots, list(p.g))
+}
+
+p.gp.all <- ggarrange(
+  plotlist=gene.graphplots,
+  ncol=11, nrow=length(gene.regexes), 
+  common.legend = T, 
+  labels = c("a. catA1_1", rep("", 10), "b. mef(A)_1", rep("", 10), "c. tet(L)_4", rep("", 10)), 
+  font.label = list(size = 18, color = "black", face = "bold", family = NULL)
+)
+
+ggsave(plot=p.gp.all, filename = "figs/degree_top10_network_sel.png", width=30,height=15)
+ggsave(plot=p.gp.all, filename = "figs/degree_top10_network_sel.eps", width=30,height=15, family="sans")
+ggsave(plot=p.gp.all, filename = "figs/degree_top10_network_sel.pdf", width=30,height=15)
+# ggsave does not want to create pdf, so let's use convert
+# system("convert output/networks_sparcc_frag50_minn10/degree_top10_network_sel.png output/networks_sparcc_frag50_minn10/degree_top10_network_sel.pdf")
+```
+
+# Number of nodes and connections to the different classes  (Figure 4)
+```{r fig.width=10, fig.height=5}
+classDegreeSums <- tibble()
+
+for (host in names(networks)) {
+  G <- networks[[host]]
+  
+  class.degree.sums <- G %>% 
+    activate(nodes) %>% 
+    as_tibble() %>% 
+    group_by(ResFinder_class) %>%
+    summarise(sum_degree = sum(nodedegree), n_nodes=n_distinct(name)) %>%
+    mutate(host=str_to_title(str_replace(host, '_', ' ')))
+  
+  classDegreeSums <- rbind(classDegreeSums, class.degree.sums)
+}
+
+
+classDegreeSums %>%
+  ggplot() +
+  geom_point(aes(x=n_nodes, y=sum_degree, color=ResFinder_class, shape=host)) +
+  scale_shape_manual("Network", values=c(1:11)) +
+  scale_color_manual("ResFinder class", values=classes_colors)  +
+  xlab('Number of nodes (genes)') +
+  ylab('Number of edges (correlations)') +
+  theme_light() +
+  theme(legend.position = "bottom", legend.box = "vertical", legend.direction = "horizontal") +
+  guides(color = guide_legend(ncol = 2, byrow=F)) 
+ggsave('figs/count_class_edges.png', width=10, height=10)
+ggsave('figs/count_class_edges.pdf', width=10, height=10)
+ggsave('figs/count_class_edges.eps', width=10, height=10)
+# p + opts(legend.direction = "horizontal", legend.position = "bottom", legend.box = "vertical")
+```
+
+## Averaging class-class correlations (Figure S6)
+How: with Fisher's z-transformation.
+```{r avg_network_corrs, fig.height=15, fig.width=15}
+class2classCorrs <- tibble()
+for (host in names(networks)) {
+  
+  G <- networks[[host]]
+  ho <- which(host == hosts)
+  
+  G.data <- as_data_frame(G) %>%
+    left_join(select(as_data_frame(G, what='vertices'), c(name, ResFinder_class)), by=c("from" = "name")) %>%
+    rename(Var1_class = ResFinder_class)%>%
+    left_join(select(as_data_frame(G, what='vertices'), c(name, ResFinder_class)), by=c("to" = "name")) %>%
+    rename(Var2_class = ResFinder_class)
+  
+  avg.corr <- G.data %>%
+    mutate(zscore = DescTools::FisherZ(corr)) %>%
+    group_by(From=pmin(Var1_class, Var2_class), To=pmax(Var1_class, Var2_class)) %>%
+    summarise(meanzscore = mean(zscore), n_edges = n()) %>%
+    mutate(avgcorr = DescTools::FisherZInv(meanzscore), host=host, host_order=ho) 
+  
+  class2classCorrs <- rbind(class2classCorrs, avg.corr)
+}
+
+class2classCorrs2 <- class2classCorrs %>%
+  unite(From.To, From, To, sep="-", remove=F) %>%
+  group_by(host) %>%
+  mutate(pct_edges = n_edges / sum(n_edges) * 100) %>%
+  mutate(
+    host = str_to_title(case_when(
+      host == 'canis_lupus' ~ 'Dog',
+      host == 'homo_sapiens' ~ 'Human',
+      TRUE ~ host
+    ))
+)
+
+plot.avgs.corrs <- ggplot(class2classCorrs2) +
+  geom_point(aes(x=host, y=From.To, size=pct_edges, color=avgcorr)) +
+  scale_color_viridis("Average\ncorrelation",direction=-1, limits=c(0.6,1)) +
+  scale_size("Percentage\nof edges") +
+  theme_light() +
+  theme(axis.text.y = element_blank(), axis.title = element_blank())
+
+axis.color.cons <- ggplot(class2classCorrs2) +
+  geom_tile(aes(x="C1", y=From.To, fill=From)) +
+  geom_tile(aes(x="C2", y=From.To, fill=To)) +
+  scale_fill_manual("ResFinder class",values=classes_colors) +
+  guides(fill=guide_legend(ncol = 4)) +
+  theme_light() +
+  theme(
+    axis.text.y = element_blank(), 
+    axis.title = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+ggarrange(
+  ggarrange(axis.color.cons, plot.avgs.corrs, ncol=2, widths=c(0.055, 1), common.legend = T),
+  as_ggplot(get_legend(plot.avgs.corrs)), 
+  ncol=2,
+  widths = c(1, 0.1)
+)
+ggsave(
+  filename = 'figs/network_avg_corrs.pdf',
+  width=16, height=15
+)
+system("convert figs/network_avg_corrs.pdf figs/network_avg_corrs.png")
+```
