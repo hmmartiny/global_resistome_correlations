@@ -2,6 +2,11 @@
 
 All count and metadata is available at https://zenodo.org/record/6919377 
 
+The following folders have been shared at this repo for the sake of reproducibility:
+* [data/](data/) : contains output of usearch clustering at 90% seq identity.
+* [src/](src/) : contains various scripts used to generate the large correlation matrices.
+* [notebooks/](notebooks/): contains the Rmd notebook (and html rendering) to recreate the results.
+
 ## Steps in analysis
 ### 1. Retrieve data
 using a MySQL database (see https://hmmartiny.github.io/mARG/00_Data_loading.html), use
@@ -17,7 +22,7 @@ usearch -cluster_fast ResFinder -id 0.9 -query_cov 0.9 -target_cov 0.9 -centroid
 Then merge the clusters together, using the script [`src/uc90_convert.py`](src/uc90_convert.py)
 
 ### 3. Run SparCC
-We reimplemented SparCC to run on a GPU, but the code is simply adapted from the original to use [Cupy](https://cupy.dev/) instead of Numpy. The code is in the file ['src/run_sparcc.py'](src/run_sparcc.py)
+We reimplemented SparCC to run on a GPU, but the code is simply adapted from the [original](https://github.com/bio-developer/sparcc/) to use [Cupy](https://cupy.dev/) instead of Numpy. The code is in the file [`src/run_sparcc.py`](src/run_sparcc.py)
 
 Using cuda10.1 and cupy/10.1.0, SparCC can be run for a input data matrix like this:
 ```{bash}
