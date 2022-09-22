@@ -2,8 +2,12 @@
 [![DOI](https://zenodo.org/badge/539466341.svg)](https://zenodo.org/badge/latestdoi/539466341)
 
 
-All count and metadata is available at https://zenodo.org/record/6919377 
+# Data 
+All count and metadata is available from Zenodo  [here](https://zenodo.org/record/6919377)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.6919377.svg)](https://doi.org/10.5281/zenodo.6919377)
 
+
+# Folders
 The following folders have been shared at this repo for the sake of reproducibility:
 * [data/](data/) : contains output of usearch clustering at 90% seq identity.
 * [src/](src/) : contains various scripts used to generate the large correlation matrices.
