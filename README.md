@@ -1,4 +1,6 @@
 # Inferring correlations for the global resistome
+[![DOI](https://zenodo.org/badge/539466341.svg)](https://zenodo.org/badge/latestdoi/539466341)
+
 
 All count and metadata is available at https://zenodo.org/record/6919377 
 
