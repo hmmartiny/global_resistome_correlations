@@ -143,7 +143,7 @@ for (netFile in netFiles) {
 ```
 
 # Abundance visualizations (Figure 1)
-```{r relative_abundances}
+```{r relative_abundances, message=FALSE, warning=FALSE}
 get_host_order <- function(x){return(which(x == hosts))}
 
 sum.gene.counts <- gene.counts %>%
@@ -170,7 +170,7 @@ sum.gene.counts2 <- sum.gene.counts %>%
 p.class.rels <- ggplot(sum.gene.counts2) +
   geom_bar(aes(y=reorder(hostGroup2, hostOrder), x=fragClosed, fill=ResFinder_class), stat='identity') +
   scale_fill_manual('ResFinder class',values = classes_colors) +
-  xlab('Relative abundance') +
+  xlab('Relative abundance (%)') +
   ylab('Source') +
   theme_light() +
   theme(legend.position="bottom")  +
@@ -201,23 +201,23 @@ gene.rels.top10 <- gene.rels %>%
       TRUE ~ hostGroup))
   )
 
-p.gene.rels <- ggplot(gene.rels.top10) +
-  geom_point(aes(y=reorder(hostGroup2, hostOrder), x=fragClo, color=ResFinder_class), alpha=.5) +
-  ggforce::facet_zoom(x = fragClo < 15, zoom.size=1, show.area=F) +
-  ggrepel::geom_text_repel(aes(x=fragClo, y=hostGroup, color=ResFinder_class, label=refSequence), size=2, box.padding = unit(.25, "lines"), max.overlaps = 10) +
-  scale_color_manual(values = classes_colors) +
-  xlab('Relative abundance') +
-  ylab('Source') +
-  guides(color='none') +
-  scale_x_continuous(breaks=seq(0, 100, 10)) +
-  theme_light()
+p.gene.rels <- ggplot(data=gene.rels.top10) + 
+  geom_bar(aes(x=refSequence, y=fragClo, fill=ResFinder_class), stat='identity') + 
+  facet_wrap(~fct_reorder(hostGroup2, hostOrder), scales='free_x', ncol=4) + 
+  theme_light() + 
+  theme(axis.text.x = element_text(angle=90)) +
+  scale_fill_manual(values=classes_colors, guide="none") +
+  xlab('ARG') + ylab('Relative abundance (%)') +
+  ylim(-5,100)
 
 (p.rels.combined <- ggarrange(p.class.rels, p.gene.rels, ncol = 1, nrow=2, labels = 'auto', heights = c(0.75, 1)))
 ggsave('figs/relative_abundances.pdf', width=15, height=15)
 ggsave('figs/relative_abundances.png', width=15, height=15)
 ggsave('figs/relative_abundances.eps', width=15, height=15)
-
 ```
+
+
+
 # Metadata overview
 Define colors for the various sampling sources
 ```{r metadata_palettes}
@@ -234,7 +234,7 @@ host_fill_scale <- scale_fill_manual(name = "Sampling source", values = host_col
 
 ```
 ## Sampling year (Figure S1)
-```{r plot_metadata_years}
+```{r plot_metadata_years, warning=FALSE}
 meta.data %>%
   mutate(year=replace_na(year, 'Unknown'), hostGroup=replace_na(hostGroup, 'other')) %>%
   group_by(hostGroup, year) %>%
@@ -263,7 +263,7 @@ meta.data %>%
   dim()
 ```
 ## Sequencing platforms (Figure S2)
-```{r plot_metadata_platforms}
+```{r plot_metadata_platforms, message=FALSE, warning=FALSE}
 meta.data %>%
   mutate(hostGroup = str_to_title(case_when(
       hostGroup == 'canis_lupus' ~ 'Dog',
@@ -284,7 +284,7 @@ ggsave('figs/run_platform.eps', width=7, height=5)
 ```
 
 ## Sampling locations (Figure S3)
-```{r plot_metadata_locations}
+```{r plot_metadata_locations, message=FALSE, warning=FALSE}
 library(maps)
 map <- map_data('world')
 
@@ -314,6 +314,7 @@ p.map.runs <- ggplot() +
   theme_void() +
   theme(strip.text.x = element_text(size=14)) +
   scale_size('Number of samples', range=c(.5, 5)) 
+p.map.runs
 
 ggsave(plot=p.map.runs, filename='figs/run_coordinates.png', width=20, height=15)
 ggsave(plot=p.map.runs, filename='figs/run_coordinates.pdf', width=20, height=15)
@@ -333,7 +334,7 @@ rbind(
 
 
 # Edge distributions (Figure S4)
-```{r plot_edge_distributions}
+```{r plot_edge_distributions, message=FALSE, warning=FALSE}
 all.p.edges <- list()
 for (host in hosts) {
   
@@ -363,7 +364,7 @@ for (host in hosts) {
    all.p.edges <- c(all.p.edges, setNames(list(p.edges), host))
 }
 
-p.all.edges <- ggarrange(plotlist = all.p.edges, common.legend = T, ncol = 3, nrow=4)
+(p.all.edges <- ggarrange(plotlist = all.p.edges, common.legend = T, ncol = 3, nrow=4))
 ggsave(plot = p.all.edges, filename = 'figs/all_edges_dist.png', width=10, height=10)
 ggsave(plot = p.all.edges, filename = 'figs/all_edges_dist.pdf', width=10, height=10)
 ggsave(plot = p.all.edges, filename = 'figs/all_edges_dist.eps', width=10, height=10)
@@ -373,7 +374,7 @@ ggsave(plot = p.all.edges, filename = 'figs/all_edges_dist.eps', width=10, heigh
 
 # Network visualizations (Figure 2a)
 Each network is visualized by using the Fruchterman-Reingold layout and save as a pdf/png/tiff. 
-```{r plot_networks, warning=FALSE}
+```{r plot_networks, message=FALSE, warning=FALSE}
 source.network.plots <- list()
 all.network <- NULL
 for (host in names(networks)) {
@@ -464,7 +465,7 @@ ggsave(plot=p.combined, filename='figs/network_combined.png', width=22, height=8
 
 ## Network characteristics (Figure 2b)
 Summarise global properties of the different networks
-```{r make_network_characteristics}
+```{r make_network_characteristics, message=FALSE, warning=FALSE}
 network.characteristics <- tibble()
 for (host in names(networks)) {
   
@@ -513,7 +514,7 @@ ggsave('figs/network_metrics.png')
 ggsave('figs/network_metrics.pdf')
 ```
 ### Distribution of correlation coefficients / weights (Figure 2c)
-```{r plot_corr_dists, fig.width=5, fig.height=10}
+```{r plot_corr_dists, fig.height=10, fig.width=5, message=FALSE, warning=FALSE}
 all.edges <- tibble()
 for (host in names(networks)) {
   
@@ -551,7 +552,7 @@ all.edges <- all.edges %>%
 
 
 ### Overlapping nodes and edges in the networks (Figure 2d)
-```{r plot_network_overlaps}
+```{r plot_network_overlaps, message=FALSE, warning=FALSE}
 overlapping.edges <- matrix(nrow=length(networks), ncol=length(networks))
 overlapping.nodes <- matrix(nrow=length(networks), ncol=length(networks))
 
@@ -608,7 +609,7 @@ ggsave(plot=p.net_descs, filename='figs/network_characteristics.png', width=20, 
 
 # Local properties of nodes (Figure 3)
 looking at the nodes with the highest degrees
-```{r fig.height=7, fig.width=10}
+```{r fig.height=7, fig.width=10, message=FALSE, warning=FALSE}
 node.centralities <- tibble()
 for (host in names(networks)) {
   
@@ -667,8 +668,9 @@ ggsave('figs/degree_top10_network_abundances_rel.png', width = 15, height=10)
 ggsave('figs/degree_top10_network_abundances_rel.pdf', width = 15, height=10)
 ggsave('figs/degree_top10_network_abundances_rel.eps', width = 15, height=10)
 ```
+
 ## Selected genes in networks (Figure S5)
-```{r warning=FALSE}
+```{r message=FALSE, warning=FALSE}
 gene.regexes <- c("catA1", "mef\\(A\\)_1", "tet\\(L\\)_4")
 #all.gene.graphplots <- list()
 gene.graphplots <- list()
@@ -725,7 +727,7 @@ for (gene.regex in gene.regexes) {
   #all.gene.graphplots <- c(all.gene.graphplots, list(p.g))
 }
 
-p.gp.all <- ggarrange(
+ p.gp.all <- ggarrange(
   plotlist=gene.graphplots,
   ncol=11, nrow=length(gene.regexes), 
   common.legend = T, 
@@ -741,7 +743,7 @@ ggsave(plot=p.gp.all, filename = "figs/degree_top10_network_sel.pdf", width=30,h
 ```
 
 # Number of nodes and connections to the different classes  (Figure 4)
-```{r fig.width=10, fig.height=5}
+```{r fig.height=15, fig.width=10, message=FALSE, warning=FALSE}
 classDegreeSums <- tibble()
 
 for (host in names(networks)) {
@@ -776,7 +778,7 @@ ggsave('figs/count_class_edges.eps', width=10, height=10)
 
 ## Averaging class-class correlations (Figure S6)
 How: with Fisher's z-transformation.
-```{r avg_network_corrs, fig.height=15, fig.width=15}
+```{r avg_network_corrs, fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
 class2classCorrs <- tibble()
 for (host in names(networks)) {
   
