@@ -9,7 +9,7 @@ All count and metadata is available from Zenodo  [here](https://zenodo.org/recor
 
 # Folders
 The following folders have been shared at this repo for the sake of reproducibility:
-* [data/](data/) : contains output of usearch clustering at 90% seq identity.
+* [data/](data/) : contains output of usearch clustering at 90% seq identity and the output files of our SparCC implementation.
 * [src/](src/) : contains various scripts used to generate the large correlation matrices.
 * [notebooks/](notebooks/): contains the Rmd notebook (and html rendering) to recreate the results.
 
