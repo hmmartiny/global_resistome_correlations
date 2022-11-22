@@ -94,22 +94,31 @@ importGraph <- function(filename) {
 }
 
 classes_overgroups <- list(
-    'Aminoglycoside' = 'Aminoglycoside/Fluoroquinolone/Quinolone', 
-    'Aminoglycoside/Fluoroquinolone/Quinolone' = 'Aminoglycoside/Fluoroquinolone/Quinolone',
-    'Lincosamide' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin', 
-    'Lincosamide/Macrolide' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin', 
-    'Lincosamide/Macrolide/Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin', 
-    'Lincosamide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin_A' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    'Lincosamide/Pleuromutilin/Streptogramin_A' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    'Macrolide' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    'Macrolide/Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    'Streptogramin_A' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    'Streptogramin_A/Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    'Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    "Lincosamide/Macrolide/Streptogramin_A/Streptogramin_B/Tetracycline" = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    "Lincosamide/Streptogramin_A" = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
-    'Oxazolidinone/Phenicol' = 'Oxazolidinone/Phenicol/Tetracycline', 
-    'Oxazolidinone/Phenicol/Tetracycline' = 'Oxazolidinone/Phenicol/Tetracycline'
+    # 'Aminoglycoside' = 'Aminoglycoside/Fluoroquinolone/Quinolone', 
+    # 'Aminoglycoside/Fluoroquinolone/Quinolone' = 'Aminoglycoside/Fluoroquinolone/Quinolone',
+    # 'Lincosamide' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin', 
+    # 'Lincosamide/Macrolide' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin', 
+    # 'Lincosamide/Macrolide/Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin', 
+    # 'Lincosamide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin_A' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # 'Lincosamide/Pleuromutilin/Streptogramin_A' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # 'Macrolide' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # 'Macrolide/Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # 'Streptogramin_A' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # 'Streptogramin_A/Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # 'Streptogramin_B' = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # "Lincosamide/Macrolide/Streptogramin_A/Streptogramin_B/Tetracycline" = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # "Lincosamide/Streptogramin_A" = 'Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+    # 'Oxazolidinone/Phenicol' = 'Oxazolidinone/Phenicol/Tetracycline', 
+    # 'Oxazolidinone/Phenicol/Tetracycline' = 'Oxazolidinone/Phenicol/Tetracycline'
+  'Streptogramin_A' = 'Streptogramin',
+  'Streptogramin_A/Streptogramin_B' = 'Streptogramin',
+  'Streptogramin_B' = 'Streptogramin',
+  'Lincosamide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin_A' = 'Lincosamide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+  'Lincosamide/Macrolide/Streptogramin_B' = 'Lincosamide/Macrolide/Streptogramin',
+  'Lincosamide/Streptogramin_A'='Lincosamide/Streptogramin',
+  'Lincosamide/Pleuromutilin/Streptogramin_A'= 'Lincosamide/Pleuromutilin/Streptogramin',
+  'Lincosamide/Macrolide/Streptogramin_A/Streptogramin_B/Tetracycline'='Lincosamide/Macrolide/Streptogramin/Tetracycline',
+  'Macrolide/Streptogramin_B'='Macrolide/Streptogramin'
   )
   
 # retrieve resistance classes
@@ -129,11 +138,11 @@ get_resClasses <- function() {
       summarise('ResFinder_class' = paste(anno_value, collapse="/")) %>%
       mutate(
         ResFinder_class = case_when(
-          ResFinder_class %in% names(classes_overgroups) ~ as.character(classes_overgroups[ResFinder_class]), 
+          ResFinder_class %in% names(classes_overgroups) ~ as.character(classes_overgroups[ResFinder_class]),
           TRUE ~ ResFinder_class
         )
       )
-    
+
     return(classes.data2)
 }
 
@@ -238,3 +247,4 @@ extract_neighborhood <- function(gene.regex, G) {
   
   return(G.sel)
 }
+

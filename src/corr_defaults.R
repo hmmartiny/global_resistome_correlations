@@ -29,22 +29,35 @@ group2host <- tibble::enframe(host2group) %>%
   tibble::deframe()
 
 # Define color scheme for resfinder classes
-classes <- c("Aminoglycoside/Fluoroquinolone/Macrolide/Phenicol/Rifampicin/Tetracycline",
-             "Aminoglycoside/Fluoroquinolone/Quinolone"                                 ,
-             "Beta_lactam"                                                              ,
-             "Folate_pathway_antagonist"                                                ,
-             "Fosfomycin"                                                               ,
-             "Glycopeptide"                                                             ,
-             "Lincosamide/Macrolide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin" ,
-             "Macrolide/Tetracycline"                                                   ,
-             "Nitroimidazole"                                                                  ,
-             "Oxazolidinone/Phenicol/Tetracycline"                                      ,
-             "Phenicol"                                                                 ,
-             "Pleuromutilin"                                                            ,
-             "Polymyxin"                                                                ,
-             "Quinolone"                                                                ,
-             "Rifampicin"                                                               ,
-             "Steroid_antibacterial"                                                    ,
-             "Tetracycline"    )
-classes_colors <- setNames(pals::alphabet(n=length(classes)), classes)
+classes <- c('Rifampicin',
+             'Phenicol',
+             'Beta_lactam',
+             'Glycopeptide',
+             'Aminoglycoside',
+             'Aminoglycoside/Fluoroquinolone/Quinolone',
+             'Macrolide',
+             'Lincosamide/Oxazolidinone/Phenicol/Pleuromutilin/Streptogramin',
+             'Macrolide/Tetracycline',
+             'Quinolone',
+             'Folate_pathway_antagonist',
+             'Lincosamide/Macrolide/Streptogramin',
+             'Lincosamide/Macrolide',
+             'Fosfomycin',
+             'Steroid_antibacterial',
+             'Lincosamide',
+             'Lincosamide/Streptogramin',
+             'Lincosamide/Pleuromutilin/Streptogramin',
+             'Polymyxin',
+             'Aminoglycoside/Fluoroquinolone/Macrolide/Phenicol/Rifampicin/Tetracycline',
+             'Lincosamide/Macrolide/Streptogramin/Tetracycline',
+             'Macrolide/Streptogramin',
+             'Nitroimidazole',
+             'Oxazolidinone/Phenicol',
+             'Tetracycline',
+             'Oxazolidinone/Phenicol/Tetracycline',
+             'Pleuromutilin',
+             'Streptogramin'
+            )
+
+classes_colors <- setNames(pals::glasbey(n=length(classes)), sort(classes))
 
